@@ -1,4 +1,6 @@
 import telebot
+telebot.apihelper.SESSION_TIME_TO_LIVE = 5 * 60
+import telebot
 from groq import Groq
 import requests
 import os
