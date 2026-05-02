@@ -1,10 +1,44 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Form
 from sqlalchemy.orm import Session
-from database import get_db, StationConfig
+from database import get_db, StationData, StationConfig
 from datetime import datetime
 
 router = APIRouter()
 
+# Принять данные с датчиков станции
+@router.post("/data")
+async def receive_station_data(
+    station_id: int   = Form(...),
+    temp:       float = Form(...),
+    light:      float = Form(...),
+    db: Session       = Depends(get_db)
+):
+    record = StationData(
+        station_id=station_id,
+        temp=temp,
+        light=light
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return {"status": "ok", "id": record.id}
+
+# Получить последние данные станции
+@router.get("/data/{station_id}/last")
+def get_last(station_id: int, db: Session = Depends(get_db)):
+    r = db.query(StationData).filter(
+        StationData.station_id == station_id
+    ).order_by(StationData.id.desc()).first()
+    if not r:
+        return {"error": "Нет данных"}
+    return {
+        "station_id": r.station_id,
+        "temp":       r.temp,
+        "light":      r.light,
+        "created_at": r.created_at
+    }
+
+# Получить команду полива
 @router.get("/config/{station_id}")
 def get_config(station_id: int, db: Session = Depends(get_db)):
     config = db.query(StationConfig).filter(
@@ -16,6 +50,7 @@ def get_config(station_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"watering_ml": config.watering_ml}
 
+# Установить команду полива
 @router.post("/config/{station_id}")
 def set_config(station_id: int, watering_ml: float, db: Session = Depends(get_db)):
     config = db.query(StationConfig).filter(
