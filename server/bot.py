@@ -301,7 +301,57 @@ def do_water(call):
         print(f"Полив ошибка: {e}")
         bot.send_message(chat_id, "⚠️ Ошибка отправки команды")
 
-# ========== АНАЛИЗ ФОТО ==========
+# ========== ВОПРОС ТЕКСТОМ ==========
+@bot.message_handler(commands=['ask'])
+def ask_question(message):
+    chat_id = message.chat.id
+    bot.send_message(chat_id, "🌿 Опиши проблему своего растения:")
+    bot.register_next_step_handler(message, process_question)
+
+def process_question(message):
+    chat_id  = message.chat.id
+    question = message.text
+    stations = get_stations(chat_id)
+    
+    # Берём первую станцию если есть
+    plant = "растение"
+    if stations:
+        first = list(stations.values())[0]
+        plant = first.get("plant", "растение")
+
+    bot.send_message(chat_id, "🤖 Анализирую...")
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=400,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Пользователь выращивает {plant}. "
+                    f"Проблема: {question}. "
+                    f"Определи причину и дай конкретные рекомендации. "
+                    f"Отвечай на русском, коротко и понятно."
+                )
+            }]
+        )
+        answer = response.choices[0].message.content
+    except Exception as e:
+        print(f"Groq ошибка: {e}")
+        answer = "Не удалось получить ответ. Попробуй позже."
+
+    markup = telebot.types.InlineKeyboardMarkup()
+    for sid, data in stations.items():
+        markup.add(telebot.types.InlineKeyboardButton(
+            f"💧 Полить Станцию {sid}",
+            callback_data=f"water_{sid}"
+        ))
+
+    bot.send_message(chat_id,
+        f"🔍 Анализ:\n\n{answer}",
+        reply_markup=markup
+    )
+    # ========== АНАЛИЗ ФОТО ==========
 @bot.message_handler(content_types=['photo'])
 def analyze_photo(message):
     chat_id  = message.chat.id
