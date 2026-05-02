@@ -1,12 +1,9 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from database import init_db
 from routes.robot   import router as robot_router
 from routes.station import router as station_router
-import telebot
 import threading
-
-BOT_TOKEN = "8705551830:AAEzTtIvFucE_Homl61QEa6m1Uq8xDM1O1c"
-bot = telebot.TeleBot(BOT_TOKEN)
+import time
 
 app = FastAPI(title="AgroSynapse", version="1.0.0")
 app.include_router(robot_router,   prefix="/robot",   tags=["Робот"])
@@ -15,15 +12,24 @@ app.include_router(station_router, prefix="/station", tags=["Станция"])
 @app.on_event("startup")
 def startup():
     init_db()
-    # Запускаем бота в фоне
     t = threading.Thread(target=run_bot, daemon=True)
     t.start()
     print("🌱 AgroSynapse запущен!")
 
 def run_bot():
-    from bot import bot
-    print("🤖 Бот запущен!")
-    bot.infinity_polling(timeout=10, long_polling_timeout=5)
+    # Ждём 10 секунд чтобы старый бот успел остановиться
+    time.sleep(10)
+    try:
+        import bot as telegram_bot
+        print("🤖 Бот запускается!")
+        telegram_bot.bot.delete_webhook()
+        telegram_bot.bot.infinity_polling(
+            timeout=10,
+            long_polling_timeout=5,
+            restart_on_change=False
+        )
+    except Exception as e:
+        print(f"❌ Ошибка бота: {e}")
 
 @app.get("/")
 def root():
