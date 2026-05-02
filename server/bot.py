@@ -203,6 +203,3 @@ def allow_water(call):
         f"✅ Полив разрешён! Насос польёт {ml} мл."
     )
 
-# ========== ЗАПУСК ==========
-print("🤖 Бот запущен!")
-bot.polling(none_stop=True)
