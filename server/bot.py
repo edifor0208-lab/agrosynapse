@@ -166,17 +166,20 @@ def analyze_photo(message):
     file_info = bot.get_file(file_id)
     file_url  = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
     
+    try:
     response = client.chat.completions.create(
         model="llama3-8b-8192",
+        max_tokens=200,
+        timeout=15,
         messages=[{
             "role": "user",
-            "content": f"Пользователь прислал фото своего растения. "
-                      f"У него растёт {user_profiles.get(chat_id, {}).get('plant', 'растение')}. "
-                      f"Фото по ссылке: {file_url}. "
-                      f"Определи проблемы растения и дай рекомендации по поливу и уходу. "
-                      f"Отвечай на русском языке, коротко и понятно."
+            "content": f"Назови 2-3 популярных сорта {plant} для региона {region}. Только названия через запятую."
         }]
     )
+    sorts = response.choices[0].message.content
+except Exception as e:
+    print(f"Groq ошибка: {e}")
+    sorts = "Невский, Романо, Импала"
     
     analysis = response.choices[0].message.content
     
