@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Form
 from sqlalchemy.orm import Session
-from database import get_db, SensorData
+from database import get_db, RobotData
 from datetime import datetime
 import os, shutil
 
@@ -13,9 +13,7 @@ async def receive_data(
     station_id:    int   = Form(...),
     soil_moisture: float = Form(...),
     ph:            float = Form(...),
-    temp:          float = Form(...),
     image: UploadFile    = File(None),
-    light: float         = Form(0.0),
     db: Session          = Depends(get_db)
 ):
     image_path = None
@@ -25,23 +23,28 @@ async def receive_data(
         with open(image_path, "wb") as f:
             shutil.copyfileobj(image.file, f)
 
-    record = SensorData(
-    station_id=station_id, soil_moisture=soil_moisture,
-    ph=ph, temp=temp, image_path=image_path, light=light
-)
+    record = RobotData(
+        station_id=station_id,
+        soil_moisture=soil_moisture,
+        ph=ph,
+        image_path=image_path
     )
     db.add(record)
     db.commit()
     db.refresh(record)
-    print(f"📊 Станция {station_id}: влажность={soil_moisture}% pH={ph} temp={temp}°C")
     return {"status": "ok", "id": record.id}
 
 @router.get("/data/{station_id}/last")
 def get_last(station_id: int, db: Session = Depends(get_db)):
-    r = db.query(SensorData).filter(
-        SensorData.station_id == station_id
-    ).order_by(SensorData.id.desc()).first()
+    r = db.query(RobotData).filter(
+        RobotData.station_id == station_id
+    ).order_by(RobotData.id.desc()).first()
     if not r:
         return {"error": "Нет данных"}
-    return {"station_id": r.station_id, "soil_moisture": r.soil_moisture,
-            "ph": r.ph, "temp": r.temp, "created_at": r.created_at}
+    return {
+        "station_id":    r.station_id,
+        "soil_moisture": r.soil_moisture,
+        "ph":            r.ph,
+        "image_path":    r.image_path,
+        "created_at":    r.created_at
+    }
