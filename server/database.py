@@ -16,6 +16,7 @@ class SensorData(Base):
     ph            = Column(Float)
     temp          = Column(Float)
     image_path    = Column(String, nullable=True)
+    light         = Column(Float, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
 class StationConfig(Base):
