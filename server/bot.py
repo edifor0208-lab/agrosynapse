@@ -418,3 +418,60 @@ def process_photo(call):
         f"🔍 Анализ Станции {station_id} ({plant}):\n\n{analysis}",
         reply_markup=markup
     )
+# ========== ОТВЕТ НА ЛЮБОЕ СООБЩЕНИЕ ==========
+@bot.message_handler(content_types=['text'])
+def handle_text(message):
+    chat_id  = message.chat.id
+    text     = message.text
+    stations = get_stations(chat_id)
+
+    # Собираем контекст о растениях пользователя
+    plants_info = ""
+    if stations:
+        for sid, data in stations.items():
+            plants_info += (
+                f"Станция {sid}: {data.get('plant','?')} "
+                f"в регионе {data.get('region','?')}\n"
+            )
+    else:
+        plants_info = "растения не указаны"
+
+    bot.send_chat_action(chat_id, 'typing')
+
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=400,
+            messages=[{
+                "role": "system",
+                "content": (
+                    "Ты агроном-помощник системы AgroSynapse. "
+                    "Помогаешь пользователю ухаживать за растениями. "
+                    "Отвечай на русском языке, коротко и понятно. "
+                    "Если нужен полив — предложи его."
+                )
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Мои растения:\n{plants_info}\n\n"
+                    f"Вопрос: {text}"
+                )
+            }]
+        )
+        answer = response.choices[0].message.content
+    except Exception as e:
+        print(f"Groq ошибка: {e}")
+        answer = "⚠️ Не удалось получить ответ. Попробуй позже."
+
+    # Кнопки полива если есть станции
+    markup = None
+    if stations:
+        markup = telebot.types.InlineKeyboardMarkup()
+        for sid, data in stations.items():
+            markup.add(telebot.types.InlineKeyboardButton(
+                f"💧 Полить Станцию {sid}: {data.get('plant','?')}",
+                callback_data=f"water_{sid}"
+            ))
+
+    bot.send_message(chat_id, f"🤖 {answer}", reply_markup=markup)
