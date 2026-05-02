@@ -15,6 +15,7 @@ async def receive_data(
     ph:            float = Form(...),
     temp:          float = Form(...),
     image: UploadFile    = File(None),
+    light: float         = Form(0.0),
     db: Session          = Depends(get_db)
 ):
     image_path = None
@@ -25,8 +26,9 @@ async def receive_data(
             shutil.copyfileobj(image.file, f)
 
     record = SensorData(
-        station_id=station_id, soil_moisture=soil_moisture,
-        ph=ph, temp=temp, image_path=image_path
+    station_id=station_id, soil_moisture=soil_moisture,
+    ph=ph, temp=temp, image_path=image_path, light=light
+)
     )
     db.add(record)
     db.commit()
