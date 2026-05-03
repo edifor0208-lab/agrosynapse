@@ -247,7 +247,7 @@ def setup_norms(chat_id, station_id, plant, region):
     try:
         requests.post(
             f"{SERVER_URL}/station/config/{station_id}",
-            params={"watering_ml": norms["water_ml"]}
+            params={"watering_ml": 0}
         )
     except Exception as e:
         print(f"Сервер ошибка: {e}")
