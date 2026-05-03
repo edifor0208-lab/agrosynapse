@@ -183,14 +183,42 @@ def do_water(call):
             f"{SERVER_URL}/station/config/{station_id}",
             params={"watering_ml": ml}
         )
+        markup = telebot.types.InlineKeyboardMarkup()
+        markup.add(telebot.types.InlineKeyboardButton(
+            f"⛔ Стоп полив Станции {station_id}",
+            callback_data=f"stop_{station_id}"
+        ))
         bot.send_message(chat_id,
-            f"✅ Команда отправлена!\n"
-            f"💧 Станция {station_id} польёт {ml} мл."
+            f"✅ Полив запущен!\n"
+            f"💧 Станция {station_id} польёт {ml} мл.",
+            reply_markup=markup
         )
     except Exception as e:
         print(f"Полив ошибка: {e}")
         bot.send_message(chat_id, "⚠️ Ошибка отправки команды")
 
+@bot.callback_query_handler(func=lambda c: c.data.startswith("stop_"))
+def stop_water(call):
+    chat_id    = call.message.chat.id
+    station_id = int(call.data.split("_")[1])
+
+    try:
+        requests.post(
+            f"{SERVER_URL}/station/config/{station_id}",
+            params={"watering_ml": 0}
+        )
+        # Убираем кнопку стоп
+        bot.edit_message_reply_markup(
+            chat_id,
+            call.message.message_id,
+            reply_markup=None
+        )
+        bot.send_message(chat_id,
+            f"⛔ Полив Станции {station_id} остановлен!"
+        )
+    except Exception as e:
+        print(f"Стоп ошибка: {e}")
+        bot.send_message(chat_id, "⚠️ Ошибка остановки")
 # ========== ПОДТВЕРЖДЕНИЕ СОРТА ==========
 @bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_"))
 def confirm_station(call):
