@@ -130,8 +130,10 @@ def setup_region(message):
 
     markup = telebot.types.InlineKeyboardMarkup()
     markup.add(
-        telebot.types.InlineKeyboardButton("✅ Да", callback_data=f"confirm_{station_id}"),
-        telebot.types.InlineKeyboardButton("❌ Нет", callback_data=f"setup_{station_id}")
+        markup.add(
+    telebot.types.InlineKeyboardButton("✅ Да", callback_data=f"confirm_{station_id}"),
+    telebot.types.InlineKeyboardButton("❌ Нет", callback_data=f"manual_sort_{station_id}")
+)
     )
 
     bot.send_message(chat_id,
@@ -142,13 +144,65 @@ def setup_region(message):
     )
 
 # ========== ПОДТВЕРЖДЕНИЕ ==========
-@bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_"))
-def confirm_station(call):
+# ========== РУЧНОЙ ВВОД СОРТА ==========
+@bot.callback_query_handler(func=lambda c: c.data.startswith("manual_sort_"))
+def manual_sort(call):
     chat_id    = call.message.chat.id
-    station_id = int(call.data.split("_")[1])
+    station_id = int(call.data.split("_")[2])
     plant      = user_data[chat_id]["stations"][station_id]["plant"]
-    region     = user_data[chat_id]["stations"][station_id]["region"]
 
+    # Убираем кнопки
+    bot.edit_message_reply_markup(
+        chat_id,
+        call.message.message_id,
+        reply_markup=None
+    )
+
+    bot.send_message(chat_id,
+        f"🌱 Какой сорт {plant} у тебя?\n\n"
+        f"Напиши название сорта или скинь фото растения — определю сам! 📸"
+    )
+    bot.register_next_step_handler(call.message, process_manual_sort,
+                                   station_id=station_id)
+
+def process_manual_sort(message, station_id):
+    chat_id = message.chat.id
+    plant   = user_data[chat_id]["stations"][station_id]["plant"]
+    region  = user_data[chat_id]["stations"][station_id]["region"]
+
+    # Если прислали фото
+    if message.content_type == 'photo':
+        bot.send_message(chat_id, "📸 Анализирую фото...")
+        file_id   = message.photo[-1].file_id
+        file_info = bot.get_file(file_id)
+        file_url  = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                max_tokens=100,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"На фото растение {plant}. "
+                        f"Фото: {file_url}. "
+                        f"Определи сорт если возможно. "
+                        f"Отвечай одним коротким предложением на русском."
+                    )
+                }]
+            )
+            sort_name = response.choices[0].message.content
+        except:
+            sort_name = plant
+
+    else:
+        # Если написали текстом
+        sort_name = message.text
+
+    user_data[chat_id]["stations"][station_id]["sorts"] = sort_name
+    bot.send_message(chat_id, f"✅ Сорт сохранён: {sort_name}")
+
+    # Сразу переходим к настройке норм
     bot.send_message(chat_id, "⚙️ Настраиваю нормы полива...")
 
     try:
@@ -158,8 +212,8 @@ def confirm_station(call):
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Для растения {plant} в регионе {region} дай точные нормы. "
-                    f"Отвечай ТОЛЬКО в формате JSON: "
+                    f"Для растения {plant} сорт {sort_name} в регионе {region}. "
+                    f"Дай точные нормы ТОЛЬКО в формате JSON: "
                     f"{{\"water_ml\": число, \"temp\": число, \"light\": число, \"ph\": число}}"
                 )
             }]
@@ -168,8 +222,7 @@ def confirm_station(call):
         start = norms_text.find('{')
         end   = norms_text.rfind('}') + 1
         norms = json.loads(norms_text[start:end])
-    except Exception as e:
-        print(f"Groq ошибка: {e}")
+    except:
         norms = {"water_ml": 200, "temp": 20, "light": 60, "ph": 6.5}
 
     user_data[chat_id]["stations"][station_id]["norms"] = norms
@@ -179,12 +232,12 @@ def confirm_station(call):
             f"{SERVER_URL}/station/config/{station_id}",
             params={"watering_ml": norms["water_ml"]}
         )
-    except Exception as e:
-        print(f"Сервер ошибка: {e}")
+    except:
+        pass
 
     bot.send_message(chat_id,
         f"✅ Станция {station_id} настроена!\n\n"
-        f"🌱 Растение: {plant}\n"
+        f"🌱 Растение: {plant} ({sort_name})\n"
         f"📍 Регион: {region}\n"
         f"💧 Норма воды: {norms['water_ml']} мл/день\n"
         f"🌡 Температура: {norms['temp']}°C\n"
