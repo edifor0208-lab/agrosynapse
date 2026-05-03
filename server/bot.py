@@ -4,8 +4,9 @@ import requests
 import json
 
 # ========== КЛЮЧИ ==========
-BOT_TOKEN  = "8705551830:AAEzTtIvFucE_Homl61QEa6m1Uq8xDM1O1c"
-GROQ_KEY   = "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"
+import os
+BOT_TOKEN  = os.environ.get("BOT_TOKEN")
+GROQ_KEY   = os.environ.get("GROQ_API_KEY")
 SERVER_URL = "https://agrosynapse.onrender.com"
 
 bot    = telebot.TeleBot(BOT_TOKEN)
