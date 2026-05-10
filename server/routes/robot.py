@@ -1,50 +1,46 @@
-from fastapi import APIRouter, Depends, File, UploadFile, Form
-from sqlalchemy.orm import Session
-from database import get_db, RobotData
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-import os, shutil
 
-router = APIRouter()
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+SQLALCHEMY_DATABASE_URL = "sqlite:///./agrosynapse.db"
+engine = create_engine(SQLALCHEMY_DATABASE_URL, 
+                       connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(bind=engine)
+Base = declarative_base()
 
-@router.post("/data")
-async def receive_data(
-    station_id:    int   = Form(...),
-    soil_moisture: float = Form(...),
-    ph:            float = Form(...),
-    image: UploadFile    = File(None),
-    db: Session          = Depends(get_db)
-):
-    image_path = None
-    if image and image.filename:
-        filename   = f"s{station_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.jpg"
-        image_path = f"{UPLOAD_DIR}/{filename}"
-        with open(image_path, "wb") as f:
-            shutil.copyfileobj(image.file, f)
+class RobotData(Base):
+    __tablename__ = "robot_data"
+    id            = Column(Integer, primary_key=True, index=True)
+    station_id    = Column(Integer)
+    soil_moisture = Column(Float)
+    ph            = Column(Float)
+    image_path    = Column(String, nullable=True)
+    analysis      = Column(String, nullable=True)
+    created_at    = Column(DateTime, default=datetime.utcnow)
 
-    record = RobotData(
-        station_id=station_id,
-        soil_moisture=soil_moisture,
-        ph=ph,
-        image_path=image_path
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    return {"status": "ok", "id": record.id}
+class StationData(Base):
+    __tablename__ = "station_data"
+    id         = Column(Integer, primary_key=True, index=True)
+    station_id = Column(Integer)
+    temp       = Column(Float)
+    light      = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-@router.get("/data/{station_id}/last")
-def get_last(station_id: int, db: Session = Depends(get_db)):
-    r = db.query(RobotData).filter(
-        RobotData.station_id == station_id
-    ).order_by(RobotData.id.desc()).first()
-    if not r:
-        return {"error": "Нет данных"}
-    return {
-        "station_id":    r.station_id,
-        "soil_moisture": r.soil_moisture,
-        "ph":            r.ph,
-        "image_path":    r.image_path,
-        "created_at":    r.created_at
-    }
+class StationConfig(Base):
+    __tablename__ = "station_config"
+    id          = Column(Integer, primary_key=True, index=True)
+    station_id  = Column(Integer, unique=True)
+    watering_ml = Column(Float, default=0)
+    updated_at  = Column(DateTime, default=datetime.utcnow)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+    print("✅ База данных готова")
