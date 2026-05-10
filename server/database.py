@@ -4,11 +4,11 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./agrosynapse.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(SQLALCHEMY_DATABASE_URL, 
+                       connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
-# Данные с РОБОТА (pH + влажность почвы + фото)
 class RobotData(Base):
     __tablename__ = "robot_data"
     id            = Column(Integer, primary_key=True, index=True)
@@ -16,9 +16,9 @@ class RobotData(Base):
     soil_moisture = Column(Float)
     ph            = Column(Float)
     image_path    = Column(String, nullable=True)
+    analysis      = Column(String, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow)
 
-# Данные с СТАНЦИИ (температура + свет)
 class StationData(Base):
     __tablename__ = "station_data"
     id         = Column(Integer, primary_key=True, index=True)
@@ -27,7 +27,6 @@ class StationData(Base):
     light      = Column(Float)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# Команды полива
 class StationConfig(Base):
     __tablename__ = "station_config"
     id          = Column(Integer, primary_key=True, index=True)
