@@ -7,6 +7,7 @@ import time
 
 app = FastAPI(title="AgroSynapse", version="1.0.0")
 app.include_router(robot_router,   prefix="/robot",   tags=["Робот"])
+app.include_router(robot_router,   prefix="/drone",   tags=["Дрон"])
 app.include_router(station_router, prefix="/station", tags=["Станция"])
 
 @app.on_event("startup")
@@ -17,7 +18,6 @@ def startup():
     print("🌱 AgroSynapse запущен!")
 
 def run_bot():
-    # Ждём 10 секунд чтобы старый бот успел остановиться
     time.sleep(10)
     try:
         import bot as telegram_bot
