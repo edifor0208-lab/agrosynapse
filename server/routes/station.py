@@ -5,7 +5,6 @@ from datetime import datetime
 
 router = APIRouter()
 
-# Принять данные с датчиков станции
 @router.post("/data")
 async def receive_station_data(
     station_id: int   = Form(...),
@@ -23,7 +22,6 @@ async def receive_station_data(
     db.refresh(record)
     return {"status": "ok", "id": record.id}
 
-# Получить последние данные станции
 @router.get("/data/{station_id}/last")
 def get_last(station_id: int, db: Session = Depends(get_db)):
     r = db.query(StationData).filter(
@@ -35,10 +33,9 @@ def get_last(station_id: int, db: Session = Depends(get_db)):
         "station_id": r.station_id,
         "temp":       r.temp,
         "light":      r.light,
-        "created_at": r.created_at
+        "created_at": str(r.created_at)
     }
 
-# Получить команду полива
 @router.get("/config/{station_id}")
 def get_config(station_id: int, db: Session = Depends(get_db)):
     config = db.query(StationConfig).filter(
@@ -50,9 +47,9 @@ def get_config(station_id: int, db: Session = Depends(get_db)):
         db.commit()
     return {"watering_ml": config.watering_ml}
 
-# Установить команду полива
 @router.post("/config/{station_id}")
-def set_config(station_id: int, watering_ml: float, db: Session = Depends(get_db)):
+def set_config(station_id: int, watering_ml: float,
+               db: Session = Depends(get_db)):
     config = db.query(StationConfig).filter(
         StationConfig.station_id == station_id
     ).first()
