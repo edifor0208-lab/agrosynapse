@@ -591,6 +591,15 @@ def handle_message(message):
         return
 
     # ===== ОБЫЧНЫЙ ВОПРОС К ИИ =====
+    @bot.message_handler(content_types=['text', 'photo'])
+def handle_message(message):
+    chat_id = message.chat.id
+    
+    # Игнорируем команды — они обрабатываются отдельно
+    if message.content_type == 'text' and message.text.startswith('/'):
+        return
+    
+    # ... остальной код не меняй
     stations    = get_stations(chat_id)
     plants_info = ""
     if stations:
