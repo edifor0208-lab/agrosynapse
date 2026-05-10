@@ -3,6 +3,7 @@ from groq import Groq
 import requests
 import json
 import os
+import time
 
 # ========== КЛЮЧИ ==========
 BOT_TOKEN  = os.environ.get("BOT_TOKEN")
@@ -12,10 +13,9 @@ SERVER_URL = "https://agrosynapse.onrender.com"
 bot    = telebot.TeleBot(BOT_TOKEN)
 client = Groq(api_key=GROQ_KEY)
 
-# Данные пользователей
-user_data = {}
-# Флаг — ожидаем ли ввод от пользователя
+user_data     = {}
 waiting_input = {}
+camera_requests = {}
 
 def get_stations(chat_id):
     return user_data.get(chat_id, {}).get("stations", {})
@@ -23,12 +23,24 @@ def get_stations(chat_id):
 def get_station(chat_id, station_id):
     return get_stations(chat_id).get(station_id, {})
 
+def save_chat_id(chat_id: int):
+    chats_file = "telegram_chats.txt"
+    existing = []
+    if os.path.exists(chats_file):
+        with open(chats_file, "r") as f:
+            existing = f.read().splitlines()
+    if str(chat_id) not in existing:
+        with open(chats_file, "a") as f:
+            f.write(str(chat_id) + "\n")
+        print(f"✅ Новый подписчик: {chat_id}")
+
 # ========== СТАРТ ==========
 @bot.message_handler(commands=['start'])
 def start(message):
     chat_id = message.chat.id
     user_data[chat_id] = {"stations": {}, "current_station": None}
     waiting_input[chat_id] = None
+    save_chat_id(chat_id)
 
     bot.send_message(chat_id,
         "🌱 Привет! Я AgroSynapse бот!\n\n"
@@ -38,6 +50,8 @@ def start(message):
         "📊 /status — показатели станции\n"
         "💧 /water — управление поливом\n"
         "🌱 /mystations — мои станции\n"
+        "🚁 /camera — живое фото с дрона\n"
+        "🔍 /drone — последний анализ дрона\n"
     )
 
 # ========== ДОБАВИТЬ СТАНЦИЮ ==========
@@ -91,7 +105,7 @@ def my_stations(message):
 
     if not stations:
         bot.send_message(chat_id,
-            "У тебя нет станций!\n➕ /addstation — добавить"
+            "У тебя нет станций!\n➕ /addstation"
         )
         return
 
@@ -114,9 +128,7 @@ def status(message):
     waiting_input[chat_id] = None
 
     if not stations:
-        bot.send_message(chat_id,
-            "Сначала добавь станцию!\n➕ /addstation"
-        )
+        bot.send_message(chat_id, "Сначала добавь станцию!\n➕ /addstation")
         return
 
     markup = telebot.types.InlineKeyboardMarkup()
@@ -126,10 +138,8 @@ def status(message):
             callback_data=f"status_{sid}"
         ))
 
-    bot.send_message(chat_id,
-        "📊 Какую станцию показать?",
-        reply_markup=markup
-    )
+    bot.send_message(chat_id, "📊 Какую станцию показать?",
+                     reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("status_"))
 def show_status(call):
@@ -137,8 +147,12 @@ def show_status(call):
     station_id = call.data.split("_")[1]
 
     try:
-        s = requests.get(f"{SERVER_URL}/station/data/{station_id}/last", timeout=10).json()
-        r = requests.get(f"{SERVER_URL}/robot/data/{station_id}/last",   timeout=10).json()
+        s = requests.get(
+            f"{SERVER_URL}/station/data/{station_id}/last", timeout=10
+        ).json()
+        r = requests.get(
+            f"{SERVER_URL}/robot/data/{station_id}/last", timeout=10
+        ).json()
         plant = get_station(chat_id, int(station_id)).get('plant', '?')
 
         bot.send_message(chat_id,
@@ -170,7 +184,8 @@ def water(message):
             callback_data=f"water_{sid}"
         ))
 
-    bot.send_message(chat_id, "💧 Какую станцию полить?", reply_markup=markup)
+    bot.send_message(chat_id, "💧 Какую станцию полить?",
+                     reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("water_"))
 def do_water(call):
@@ -207,11 +222,8 @@ def stop_water(call):
             f"{SERVER_URL}/station/config/{station_id}",
             params={"watering_ml": 0}
         )
-        # Убираем кнопку стоп
         bot.edit_message_reply_markup(
-            chat_id,
-            call.message.message_id,
-            reply_markup=None
+            chat_id, call.message.message_id, reply_markup=None
         )
         bot.send_message(chat_id,
             f"⛔ Полив Станции {station_id} остановлен!"
@@ -219,6 +231,154 @@ def stop_water(call):
     except Exception as e:
         print(f"Стоп ошибка: {e}")
         bot.send_message(chat_id, "⚠️ Ошибка остановки")
+
+# ========== ЖИВАЯ КАМЕРА ДРОНА ==========
+@bot.message_handler(commands=['camera'])
+def camera(message):
+    chat_id  = message.chat.id
+    stations = get_stations(chat_id)
+    waiting_input[chat_id] = None
+
+    if not stations:
+        bot.send_message(chat_id,
+            "Сначала добавь станцию!\n➕ /addstation"
+        )
+        return
+
+    markup = telebot.types.InlineKeyboardMarkup()
+    for sid, data in stations.items():
+        markup.add(telebot.types.InlineKeyboardButton(
+            f"🚁 Дрон Станции {sid}: {data.get('plant','?')}",
+            callback_data=f"camera_{sid}"
+        ))
+
+    bot.send_message(chat_id,
+        "📡 С какого дрона показать живое фото?",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("camera_"))
+def request_camera(call):
+    chat_id    = call.message.chat.id
+    station_id = int(call.data.split("_")[1])
+    plant      = get_station(chat_id, station_id).get('plant', '?')
+
+    msg = bot.send_message(chat_id,
+        f"📡 Запрашиваю живое фото дрона...\n"
+        f"🚁 Станция {station_id} ({plant})\n\n"
+        f"⏳ Жди 10-15 секунд..."
+    )
+
+    # Отправляем запрос дрону
+    try:
+        requests.get(
+            f"{SERVER_URL}/drone/request/{station_id}",
+            timeout=5
+        )
+    except Exception as e:
+        print(f"Запрос дрона ошибка: {e}")
+
+    # Сохраняем кто ждёт фото
+    camera_requests[station_id] = {
+        "chat_id":    chat_id,
+        "message_id": msg.message_id,
+        "time":       time.time()
+    }
+
+    # Ждём фото в отдельном потоке
+    import threading
+    t = threading.Thread(
+        target=wait_for_photo,
+        args=(chat_id, station_id, msg.message_id),
+        daemon=True
+    )
+    t.start()
+
+def wait_for_photo(chat_id, station_id, msg_id):
+    # Ждём максимум 30 секунд
+    for i in range(30):
+        time.sleep(1)
+        try:
+            r = requests.get(
+                f"{SERVER_URL}/drone/last/{station_id}",
+                timeout=5
+            ).json()
+
+            if "error" not in r and r.get("image_path"):
+                # Фото пришло! Редактируем сообщение
+                bot.edit_message_text(
+                    f"✅ Фото получено!\n"
+                    f"🤖 Анализ:\n\n{r.get('analysis','Нет анализа')}\n\n"
+                    f"📅 {r.get('created_at','?')}",
+                    chat_id=chat_id,
+                    message_id=msg_id
+                )
+                return
+        except Exception as e:
+            print(f"Ожидание фото: {e}")
+
+    # Таймаут
+    try:
+        bot.edit_message_text(
+            "⚠️ Дрон не ответил. Возможно он не в зоне WiFi.",
+            chat_id=chat_id,
+            message_id=msg_id
+        )
+    except:
+        pass
+
+# ========== ПОСЛЕДНИЙ АНАЛИЗ ДРОНА ==========
+@bot.message_handler(commands=['drone'])
+def drone_status(message):
+    chat_id  = message.chat.id
+    stations = get_stations(chat_id)
+    waiting_input[chat_id] = None
+
+    if not stations:
+        bot.send_message(chat_id,
+            "Сначала добавь станцию!\n➕ /addstation"
+        )
+        return
+
+    markup = telebot.types.InlineKeyboardMarkup()
+    for sid, data in stations.items():
+        markup.add(telebot.types.InlineKeyboardButton(
+            f"🚁 Станция {sid}: {data.get('plant','?')}",
+            callback_data=f"drone_{sid}"
+        ))
+
+    bot.send_message(chat_id,
+        "🔍 Последний анализ с какого дрона?",
+        reply_markup=markup
+    )
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("drone_"))
+def show_drone(call):
+    chat_id    = call.message.chat.id
+    station_id = call.data.split("_")[1]
+
+    try:
+        r = requests.get(
+            f"{SERVER_URL}/drone/last/{station_id}",
+            timeout=10
+        ).json()
+
+        if "error" in r:
+            bot.send_message(chat_id,
+                "⚠️ Дрон ещё не прислал данные"
+            )
+            return
+
+        bot.send_message(chat_id,
+            f"🚁 Последний анализ дрона\n"
+            f"Станция {station_id}:\n\n"
+            f"🤖 {r.get('analysis','Нет анализа')}\n\n"
+            f"📅 {r.get('created_at','?')}"
+        )
+    except Exception as e:
+        print(f"Дрон ошибка: {e}")
+        bot.send_message(chat_id, "⚠️ Ошибка получения данных")
+
 # ========== ПОДТВЕРЖДЕНИЕ СОРТА ==========
 @bot.callback_query_handler(func=lambda c: c.data.startswith("confirm_"))
 def confirm_station(call):
@@ -227,7 +387,9 @@ def confirm_station(call):
     plant      = user_data[chat_id]["stations"][station_id]["plant"]
     region     = user_data[chat_id]["stations"][station_id]["region"]
 
-    bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
+    bot.edit_message_reply_markup(
+        chat_id, call.message.message_id, reply_markup=None
+    )
     bot.send_message(chat_id, "⚙️ Настраиваю нормы полива...")
     setup_norms(chat_id, station_id, plant, region)
 
@@ -237,12 +399,13 @@ def manual_sort(call):
     station_id = int(call.data.split("_")[2])
     plant      = user_data[chat_id]["stations"][station_id]["plant"]
 
-    bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
-
+    bot.edit_message_reply_markup(
+        chat_id, call.message.message_id, reply_markup=None
+    )
     waiting_input[chat_id] = f"sort_{station_id}"
     bot.send_message(chat_id,
         f"🌱 Какой сорт {plant} у тебя?\n\n"
-        f"Напиши название сорта или скинь фото 📸"
+        f"Напиши название или скинь фото 📸"
     )
 
 # ========== НАСТРОЙКА НОРМ ==========
@@ -257,8 +420,9 @@ def setup_norms(chat_id, station_id, plant, region):
                 "role": "user",
                 "content": (
                     f"Для растения {plant} сорт {sort} в регионе {region}. "
-                    f"Дай точные нормы ТОЛЬКО в формате JSON без лишних слов: "
-                    f"{{\"water_ml\": число, \"temp\": число, \"light\": число, \"ph\": число}}"
+                    f"Дай нормы ТОЛЬКО в JSON: "
+                    f"{{\"water_ml\": число, \"temp\": число, "
+                    f"\"light\": число, \"ph\": число}}"
                 )
             }]
         )
@@ -272,6 +436,7 @@ def setup_norms(chat_id, station_id, plant, region):
 
     user_data[chat_id]["stations"][station_id]["norms"] = norms
 
+    # Сбрасываем полив до 0 при настройке
     try:
         requests.post(
             f"{SERVER_URL}/station/config/{station_id}",
@@ -289,11 +454,12 @@ def setup_norms(chat_id, station_id, plant, region):
         f"☀️ Свет: {norms['light']}%\n"
         f"🧪 pH: {norms['ph']}\n\n"
         f"➕ /addstation — добавить ещё\n"
-        f"📊 /status — показатели"
+        f"📊 /status — показатели\n"
+        f"🚁 /camera — живое фото дрона"
     )
     waiting_input[chat_id] = None
 
-# ========== ВСЕ ТЕКСТОВЫЕ СООБЩЕНИЯ ==========
+# ========== ВСЕ СООБЩЕНИЯ ==========
 @bot.message_handler(content_types=['text', 'photo'])
 def handle_message(message):
     chat_id = message.chat.id
@@ -306,14 +472,13 @@ def handle_message(message):
     station_id = user_data[chat_id].get("current_station")
     text       = message.text if message.content_type == 'text' else ""
 
-    # ===== РЕЖИМ НАСТРОЙКИ СТАНЦИИ =====
+    # ===== НАСТРОЙКА СТАНЦИИ =====
     if state == "plant" and station_id:
         plant = text
         if station_id not in user_data[chat_id]["stations"]:
             user_data[chat_id]["stations"][station_id] = {}
         user_data[chat_id]["stations"][station_id]["plant"] = plant
         waiting_input[chat_id] = "region"
-
         bot.send_message(chat_id,
             f"📍 В каком регионе Станция {station_id}?\n"
             f"(например: Уральск, Алматы)"
@@ -334,7 +499,11 @@ def handle_message(message):
                 max_tokens=100,
                 messages=[{
                     "role": "user",
-                    "content": f"Назови 2-3 популярных сорта {plant} для региона {region}. Только названия через запятую."
+                    "content": (
+                        f"Назови 2-3 популярных сорта {plant} "
+                        f"для региона {region}. "
+                        f"Только названия через запятую."
+                    )
                 }]
             )
             sorts = response.choices[0].message.content
@@ -345,10 +514,13 @@ def handle_message(message):
 
         markup = telebot.types.InlineKeyboardMarkup()
         markup.add(
-            telebot.types.InlineKeyboardButton("✅ Да", callback_data=f"confirm_{station_id}"),
-            telebot.types.InlineKeyboardButton("❌ Нет", callback_data=f"manual_sort_{station_id}")
+            telebot.types.InlineKeyboardButton(
+                "✅ Да", callback_data=f"confirm_{station_id}"
+            ),
+            telebot.types.InlineKeyboardButton(
+                "❌ Нет", callback_data=f"manual_sort_{station_id}"
+            )
         )
-
         bot.send_message(chat_id,
             f"🌱 Для {plant} в {region} популярны:\n\n"
             f"{sorts}\n\n"
@@ -359,22 +531,28 @@ def handle_message(message):
 
     if state and state.startswith("sort_"):
         station_id = int(state.split("_")[1])
-        plant      = user_data[chat_id]["stations"][station_id]["plant"]
-        region     = user_data[chat_id]["stations"][station_id]["region"]
+        plant  = user_data[chat_id]["stations"][station_id]["plant"]
+        region = user_data[chat_id]["stations"][station_id]["region"]
 
-        # Если прислали фото
         if message.content_type == 'photo':
             bot.send_message(chat_id, "📸 Анализирую фото...")
             file_id   = message.photo[-1].file_id
             file_info = bot.get_file(file_id)
-            file_url  = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+            file_url  = (
+                f"https://api.telegram.org/file/"
+                f"bot{BOT_TOKEN}/{file_info.file_path}"
+            )
             try:
                 response = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     max_tokens=100,
                     messages=[{
                         "role": "user",
-                        "content": f"На фото растение {plant}. Фото: {file_url}. Определи сорт одним предложением на русском."
+                        "content": (
+                            f"На фото растение {plant}. "
+                            f"Фото: {file_url}. "
+                            f"Определи сорт одним предложением на русском."
+                        )
                     }]
                 )
                 sort_name = response.choices[0].message.content
@@ -389,11 +567,13 @@ def handle_message(message):
         setup_norms(chat_id, station_id, plant, region)
         return
 
-    # ===== АНАЛИЗ ФОТО =====
+    # ===== ФОТО ОТ ПОЛЬЗОВАТЕЛЯ =====
     if message.content_type == 'photo':
         stations = get_stations(chat_id)
         if not stations:
-            bot.send_message(chat_id, "Сначала добавь станцию!\n➕ /addstation")
+            bot.send_message(chat_id,
+                "Сначала добавь станцию!\n➕ /addstation"
+            )
             return
 
         markup = telebot.types.InlineKeyboardMarkup()
@@ -404,15 +584,21 @@ def handle_message(message):
             ))
 
         user_data[chat_id]["pending_photo"] = message
-        bot.send_message(chat_id, "📸 Для какой станции это фото?", reply_markup=markup)
+        bot.send_message(chat_id,
+            "📸 Для какой станции это фото?",
+            reply_markup=markup
+        )
         return
 
     # ===== ОБЫЧНЫЙ ВОПРОС К ИИ =====
-    stations   = get_stations(chat_id)
+    stations    = get_stations(chat_id)
     plants_info = ""
     if stations:
         for sid, data in stations.items():
-            plants_info += f"Станция {sid}: {data.get('plant','?')} в {data.get('region','?')}\n"
+            plants_info += (
+                f"Станция {sid}: {data.get('plant','?')} "
+                f"в {data.get('region','?')}\n"
+            )
     else:
         plants_info = "растения не указаны"
 
@@ -427,13 +613,16 @@ def handle_message(message):
                     "role": "system",
                     "content": (
                         "Ты агроном-помощник системы AgroSynapse. "
-                        "Помогаешь пользователю ухаживать за растениями. "
-                        "Отвечай на русском языке коротко и понятно."
+                        "Помогаешь ухаживать за растениями. "
+                        "Отвечай на русском коротко и понятно."
                     )
                 },
                 {
                     "role": "user",
-                    "content": f"Мои растения:\n{plants_info}\n\nВопрос: {text}"
+                    "content": (
+                        f"Мои растения:\n{plants_info}\n\n"
+                        f"Вопрос: {text}"
+                    )
                 }
             ]
         )
@@ -453,7 +642,7 @@ def handle_message(message):
 
     bot.send_message(chat_id, f"🤖 {answer}", reply_markup=markup)
 
-# ========== ФОТО АНАЛИЗ ПО СТАНЦИИ ==========
+# ========== ФОТО АНАЛИЗ ==========
 @bot.callback_query_handler(func=lambda c: c.data.startswith("photo_"))
 def process_photo(call):
     chat_id    = call.message.chat.id
@@ -465,7 +654,10 @@ def process_photo(call):
 
     file_id   = message.photo[-1].file_id
     file_info = bot.get_file(file_id)
-    file_url  = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+    file_url  = (
+        f"https://api.telegram.org/file/"
+        f"bot{BOT_TOKEN}/{file_info.file_path}"
+    )
 
     try:
         response = client.chat.completions.create(
@@ -474,7 +666,8 @@ def process_photo(call):
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Пользователь прислал фото растения {plant} со Станции {station_id}. "
+                    f"Пользователь прислал фото растения {plant} "
+                    f"со Станции {station_id}. "
                     f"Фото: {file_url}. "
                     f"Определи проблемы и дай рекомендации. "
                     f"Отвечай на русском коротко."
