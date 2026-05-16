@@ -12,6 +12,28 @@ app.include_router(robot_router,   prefix="/robot",   tags=["Робот"])
 app.include_router(robot_router,   prefix="/drone",   tags=["Дрон"])
 app.include_router(station_router, prefix="/station", tags=["Станция"])
 
+@app.get("/test-ai")
+def test_ai():
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        return {"error": "OPENAI_API_KEY не найден"}
+    try:
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [{"role": "user", "content": "Скажи привет"}],
+                "max_tokens": 50
+            },
+            timeout=10
+        )
+        return {"status": r.status_code, "response": r.json()}
+    except Exception as e:
+        return {"error": str(e)}
 @app.on_event("startup")
 def startup():
     init_db()
