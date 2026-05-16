@@ -5,26 +5,36 @@ import os
 import time
 import threading
 
-BOT_TOKEN  = os.environ.get("BOT_TOKEN")
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-SERVER_URL = "https://agrosynapse.onrender.com"
+BOT_TOKEN   = os.environ.get("BOT_TOKEN")
+OPENAI_KEY  = os.environ.get("OPENAI_API_KEY")
+SERVER_URL  = "https://agrosynapse.onrender.com"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-user_data       = {}
-waiting_input   = {}
-camera_requests = {}
+user_data     = {}
+waiting_input = {}
 
-def ai(prompt, system="Ты агроном AgroSynapse. Отвечай на русском коротко. Никогда не выдумывай IP-адреса, пароли и технические данные системы. Отвечай только на вопросы об агрономии и растениях."):
+def ai(prompt, system="Ты агроном AgroSynapse. Отвечай на русском коротко. Никогда не выдумывай IP-адреса, пароли и технические данные. Отвечай только на вопросы об агрономии и растениях."):
     try:
-        response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
-            json={"contents": [{"parts": [{"text": system + "\n\n" + prompt}]}]},
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "gpt-4o-mini",
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": prompt}
+                ],
+                "max_tokens": 400
+            },
             timeout=30
         )
-        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return r.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        print(f"Gemini ошибка: {e}")
+        print(f"OpenAI ошибка: {e}")
         return "⚠️ Попробуй позже."
 
 def get_stations(chat_id):
@@ -316,16 +326,15 @@ def setup_norms(chat_id, station_id, plant, region):
     try:
         norms_text = ai(
             f"Для {plant} сорт {sort} в регионе {region}. "
-            f"Дай нормы ТОЛЬКО в JSON без markdown и без пояснений: "
+            f"Дай нормы ТОЛЬКО в JSON без markdown: "
             f"{{\"water_ml\": число, \"temp\": число, \"light\": число, \"ph\": число}}",
-            system="Отвечай только JSON без markdown."
+            system="Отвечай только JSON без markdown и пояснений."
         )
         start = norms_text.find('{')
         end   = norms_text.rfind('}') + 1
         norms = json.loads(norms_text[start:end])
     except:
         norms = {"water_ml": 200, "temp": 20, "light": 60, "ph": 6.5}
-
     user_data[chat_id]["stations"][station_id]["norms"] = norms
     try:
         requests.post(f"{SERVER_URL}/station/config/{station_id}",
@@ -420,7 +429,6 @@ def handle_message(message):
         bot.send_message(chat_id, "📸 Для какой станции фото?", reply_markup=markup)
         return
 
-    # ИИ ответ
     stations    = get_stations(chat_id)
     plants_info = ""
     if stations:
