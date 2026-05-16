@@ -1,4 +1,19 @@
-from fastapi import FastAPI
+@app.get("/test-ai")
+def test_ai():
+    import requests as req
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return {"error": "GEMINI_API_KEY не найден в переменных окружения"}
+    try:
+        r = req.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}",
+            json={"contents": [{"parts": [{"text": "Скажи привет"}]}]},
+            timeout=10
+        )
+        return {"status": r.status_code, "response": r.json()}
+    except Exception as e:
+        return {"error": str(e)}
+        from fastapi import FastAPI
 from database import init_db
 from routes.robot   import router as robot_router
 from routes.station import router as station_router
