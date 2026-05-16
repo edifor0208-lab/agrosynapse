@@ -1,5 +1,4 @@
 import telebot
-import google.generativeai as genai
 import requests
 import json
 import os
@@ -11,17 +10,19 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 SERVER_URL = "https://agrosynapse.onrender.com"
 
 bot = telebot.TeleBot(BOT_TOKEN)
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
 
 user_data       = {}
 waiting_input   = {}
 camera_requests = {}
 
-def ai(prompt, system="Ты агроном AgroSynapse. Отвечай на русском коротко. Никогда не выдумывай IP-адреса, пароли и технические данные системы."):
+def ai(prompt, system="Ты агроном AgroSynapse. Отвечай на русском коротко. Никогда не выдумывай IP-адреса, пароли и технические данные системы. Отвечай только на вопросы об агрономии и растениях."):
     try:
-        response = model.generate_content(system + "\n\n" + prompt)
-        return response.text
+        response = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}",
+            json={"contents": [{"parts": [{"text": system + "\n\n" + prompt}]}]},
+            timeout=30
+        )
+        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
         print(f"Gemini ошибка: {e}")
         return "⚠️ Попробуй позже."
@@ -295,10 +296,10 @@ def show_drone(call):
 def confirm_station(call):
     chat_id    = call.message.chat.id
     station_id = int(call.data.split("_")[1])
-    plant      = user_data[chat_id]["stations"][station_id]["plant"]
-    region     = user_data[chat_id]["stations"][station_id]["region"]
     bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
     bot.send_message(chat_id, "⚙️ Настраиваю нормы полива...")
+    plant  = user_data[chat_id]["stations"][station_id]["plant"]
+    region = user_data[chat_id]["stations"][station_id]["region"]
     setup_norms(chat_id, station_id, plant, region)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("manual_sort_"))
@@ -313,13 +314,12 @@ def manual_sort(call):
 def setup_norms(chat_id, station_id, plant, region):
     sort = user_data[chat_id]["stations"][station_id].get("sorts", "")
     try:
-        response = model.generate_content(
+        norms_text = ai(
             f"Для {plant} сорт {sort} в регионе {region}. "
-            f"Дай нормы ТОЛЬКО в JSON без markdown: "
-            f"{{\"water_ml\": число, \"temp\": число, "
-            f"\"light\": число, \"ph\": число}}"
+            f"Дай нормы ТОЛЬКО в JSON без markdown и без пояснений: "
+            f"{{\"water_ml\": число, \"temp\": число, \"light\": число, \"ph\": число}}",
+            system="Отвечай только JSON без markdown."
         )
-        norms_text = response.text
         start = norms_text.find('{')
         end   = norms_text.rfind('}') + 1
         norms = json.loads(norms_text[start:end])
@@ -430,13 +430,7 @@ def handle_message(message):
         plants_info = "растения не указаны"
 
     bot.send_chat_action(chat_id, 'typing')
-    answer = ai(
-        f"Мои растения:\n{plants_info}\n\nВопрос: {text}",
-        system="Ты агроном AgroSynapse. Отвечай на русском коротко. "
-               "Отвечай только на вопросы об агрономии и растениях. "
-               "Если спрашивают про IP, пароли, сеть — отвечай: 'Я агроном, не могу помочь с этим.' "
-               "Никогда не выдумывай данные которых у тебя нет."
-    )
+    answer = ai(f"Мои растения:\n{plants_info}\n\nВопрос: {text}")
 
     markup = None
     if stations:
