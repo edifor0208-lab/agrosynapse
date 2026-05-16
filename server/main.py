@@ -48,7 +48,7 @@ def test_ai():
         return {"error": "GEMINI_API_KEY не найден"}
     try:
         r = req.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={key}",
             json={"contents": [{"parts": [{"text": "Скажи привет"}]}]},
             timeout=10
         )
